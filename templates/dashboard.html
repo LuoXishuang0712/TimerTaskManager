@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <title>Task Dashboard</title>
+    <link rel="stylesheet" href="/static/css/index.css">
+    <link rel="stylesheet/less" href="/static/css/dashboard.less">
+    <script src="/static/js/vue.js"></script>
+    <script src="/static/js/index.js"></script>
+    <script src="/static/js/less.min.js"></script>
+    <script src="/static/js/axios.min.js"></script>
+</head>
+<body>
+    <div id="app">
+        <div class="content-container">
+            <div class="button-container">
+                <div>
+                    <el-button type="warning" icon="el-icon-user" @click="toPage('/admin')">To Admin</el-button>
+                    <el-button type="success" icon="el-icon-plus" @click="handleOnNewTask">New Task</el-button>
+                </div>
+            </div>
+            <div class="table-container">
+                <el-table
+                    :data="tableData"
+                    style="width: 100%">
+                        <el-table-column
+                          prop="id"
+                          label="Task ID"
+                          width="180">
+                        </el-table-column>
+                        <el-table-column
+                          prop="last"
+                          label="Last Run"
+                          width="180">
+                        </el-table-column>
+                        <el-table-column
+                          prop="next"
+                          label="next Run"
+                          width="180">
+                        </el-table-column>
+                        <el-table-column
+                          prop="cron"
+                          label="CRON">
+                        </el-table-column>
+                        <el-table-column
+                            label="options"
+                            width="200"
+                        >
+                            {% verbatim %}
+                            <div slot-scope="data">
+                                <el-button type="warning" size="small"
+                                           v-show="data.row.next !== null"
+                                           @click="handleOnActionClick(data.row.id, 'pause')"
+                                >
+                                    pause
+                                </el-button>
+                                <el-button type="success" size="small"
+                                           v-show="data.row.next === null"
+                                           @click="handleOnActionClick(data.row.id, 'resume')"
+                                >
+                                    resume
+                                </el-button>
+                                <el-button type="danger" size="small"
+                                           @click="handleOnActionClick(data.row.id, 'delete')"
+                                >
+                                    delete
+                                </el-button>
+                            </div>
+                            {% endverbatim %}
+                        </el-table-column>
+                </el-table>
+            </div>
+            <el-dialog title="Add New Task" :visible.sync="dialogFormVisible">
+                <el-form :model="form">
+                    <el-form-item label="Task ID" :label-width="formLabelWidth">
+                        <el-input v-model="form.id" autocomplete="off"></el-input>
+                    </el-form-item>
+                    <el-form-item label="Task Run Time" :label-width="formLabelWidth">
+                        <el-select v-model="form.cron"
+                                   filterable allow-create default-first-option
+                                   placeholder="CRON expression here">
+                            <el-option v-for="item in presetCron"
+                                       :key="item.index"
+                                       :value="item.index"
+                                       :label="item.cron"
+                            >
+                                {% verbatim %}  <!-- prevent Django template -->
+                                <span style="float: left">{{ item.cron }}</span>
+                                <span style="float: right; color: #8492a6; font-size: 5px">{{ item.desc }}</span>
+                                {% endverbatim %}
+                            </el-option>
+                        </el-select>
+                    </el-form-item>
+                    <el-form-item label="Task Code" :label-width="formLabelWidth">
+                        <el-input type="textarea"
+                                  :rows="10"
+                                  placeholder="Python code here"
+                                  v-model="form.code">
+                        </el-input>
+                    </el-form-item>
+                </el-form>
+                <div slot="footer" class="dialog-footer">
+                    <el-button @click="dialogFormVisible = false">Cancel</el-button>
+                    <el-button type="success" @click="handleOnFormSubmit">Confirm</el-button>
+                </div>
+            </el-dialog>
+            <el-dialog title="Login" :visible.sync="loginDialogVisible"
+                       :before-close="() => {}" :show-close="false">
+                <el-form :model="loginForm">
+                    <el-form-item label="username" :label-width="formLabelWidth">
+                        <el-input v-model="loginForm.username" autocomplete="off"></el-input>
+                    </el-form-item>
+                    <el-form-item label="password" :label-width="formLabelWidth">
+                        <el-input v-model="loginForm.password" autocomplete="off" type="password"></el-input>
+                    </el-form-item>
+                </el-form>
+                <div slot="footer" class="dialog-footer">
+                    <el-button type="success" @click="handleOnLogin">Login</el-button>
+                </div>
+            </el-dialog>
+        </div>
+    </div>
+
+    <script>
+        new Vue({
+            el: "#app",
+            data: function() {
+                return {
+                    tableData: [],
+                    dialogFormVisible: false,
+                    loginDialogVisible: false,
+                    form: {
+                        id: '',
+                        cron: '',
+                        code: '',
+                    },
+                    loginForm: {
+                        username: '',
+                        password: '',
+                    },
+                    formLabelWidth: '120px',
+                    presetCron: [
+                        {
+                            cron: '0 * * * * *',
+                            desc: 'run every minute'
+                        }, {
+                            cron: '0 */15 * * * *',
+                            desc: 'run every 15 minutes'
+                        }, {
+                            cron: '0 0 0 * * *',
+                            desc: 'run at 00:00 every day'
+                        }, {
+                            cron: '0 0 7 * * MON',
+                            desc: 'run at 07:00 every Monday'
+                        }
+                    ]
+                }
+            },
+            created(){
+                let cnt = 0
+                for(let index in this.presetCron){
+                    this.presetCron[index]["index"] = cnt ++
+                }
+                axios.get(
+                    "/check_sign/"
+                ).then((res) => {
+                    console.log(res)
+                    if(res.data.status){
+                        this.preLoad()
+                    }
+                    else{
+                        this.loginDialogVisible = true
+                    }
+                }).catch((err) => {
+                    console.error(err)
+                    this.onNetworkError()
+                })
+            },
+            methods: {
+                preLoad: function () {
+                    this.refreshTaskList()
+                },
+                onNetworkError: function () {
+                    this.$message({
+                        message: "Please check your network connection",
+                        type: "error"
+                    })
+                },
+                toPage: function (url){
+                    window.location.href = url
+                },
+                handleOnNewTask: function () {
+                    this.dialogFormVisible = true
+                },
+                handleOnFormSubmit: function () {
+                    if(this.form.code === "" || this.form.id === "" || this.form.corn === ""){
+                        this.$message({
+                            message: "please fill form completely",
+                            type: 'warning'
+                        })
+                        return
+                    }
+
+                    let cron = ""
+                    if(typeof this.form.cron === "number"){
+                        cron = this.presetCron[this.form.cron].cron
+                    }
+                    else{
+                        cron = this.form.cron
+                    }
+
+                    axios.post(
+                        "/add_tasks/",
+                        {
+                            id: this.form.id,
+                            cron,
+                            code: this.form.code
+                        }
+                    ).then((res) => {
+                        if(res.data.status){
+                            this.$message({
+                                message: "Task add success",
+                                type: "success"
+                            })
+                            this.dialogFormVisible = false
+                            return
+                        }
+                        this.$message({
+                            message: res.data.msg,
+                            type: "warning"
+                        })
+                    }).catch((err) => {
+                        console.error(err)
+                        this.onNetworkError()
+                    })
+                },
+                refreshTaskList: function () {
+                    axios.get(
+                        "/tasks/"
+                    ).then((res) => {
+                        if(!res.data.status){
+                            this.$message({
+                                message: "fetch task list error",
+                                type: "warning"
+                            })
+                            return
+                        }
+
+                        if(this.tableData.length !== 0){
+                            this.tableData = []
+                        }
+
+                        let data_list = res.data.data
+                        for(let index in data_list){
+                            this.tableData.push(data_list[index])
+                            if(data_list[index].error !== null){
+                                this.$notify.error({
+                                    title: `error in task "${data_list[index].id}"`,
+                                    message: data_list[index].error,
+                                    duration: 4000,
+                                    position: 'bottom-right',
+                                })
+                            }
+                        }
+                    }).catch((err) => {
+                        console.error(err)
+                        this.onNetworkError()
+                    })
+                },
+                handleOnActionClick(job_id, command){
+                    this.$confirm(
+                        'are you sure to continue this action?',
+                        'alert', {
+                            confirmButtonText: 'Confirm',
+                            cancelButtonText: 'Cancel',
+                            type: 'warning'
+                    }).then(() => {
+                        axios.post(
+                            '/action/',
+                            {id: job_id, command}
+                        ).then((res) => {
+                            if(res.data.status){
+                                this.$message({
+                                    message: "Action execute successfully",
+                                    type: "success"
+                                })
+                                this.refreshTaskList()
+                                return
+                            }
+                            this.$message({
+                                message: res.data.msg,
+                                type: "warning"
+                            })
+                        }).catch((err) => {
+                            console.error(err)
+                            this.onNetworkError()
+                        })
+                    }).catch(() => {})
+                },
+                handleOnLogin: function () {
+                    if(this.loginForm.username.length === 0 || this.loginForm.password.length === 0){
+                        this.$message({
+                            message: "please fill form completely",
+                            type: "warning"
+                        })
+                        return
+                    }
+
+                    axios.post(
+                        '/sign/',
+                        {username: this.loginForm.username, password: this.loginForm.password}
+                    ).then((res) => {
+                        if(res.data.status){
+                            this.loginDialogVisible = false
+                            this.preLoad()
+                            return
+                        }
+
+                        this.$message({
+                            message: res.data.msg,
+                            type: "warning"
+                        })
+                    }).catch((err) => {
+                        console.error(err)
+                        this.onNetworkError()
+                    })
+                }
+            }
+        })
+    </script>
+</body>
+</html>
